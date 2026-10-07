@@ -10,3 +10,7 @@
 4. 按[贡献与发布](/developer/contributing-and-release)提交变更并记录兼容性。
 
 工具链版本、构建命令和目标板信息均待从仓库与项目维护者处核实。
+
+## 插件开发
+
+- [Lua 插件 API](/developer/lua-plugin-api)：插件入口、系统状态栏与顶栏、可选底栏和自定义图标格式。

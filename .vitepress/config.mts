@@ -1,6 +1,31 @@
 import { defineConfig } from 'vitepress'
 import llmstxt from 'vitepress-plugin-llms'
 
+const developerSidebar = {
+  text: '开发指南',
+  items: [
+    { text: '开发总览', link: '/developer/overview' },
+    { text: '环境搭建', link: '/developer/setup' },
+    { text: '构建、烧录与调试', link: '/developer/build-flash-debug' },
+    { text: '代码结构', link: '/developer/codebase' },
+    { text: 'Lua 插件 API', link: '/developer/lua-plugin-api' },
+    { text: '贡献与发布', link: '/developer/contributing-and-release' }
+  ]
+}
+
+const componentSidebar = {
+  text: '组件查询',
+  items: [
+    { text: '组件目录', link: '/components/' },
+    { text: '显示与刷新', link: '/components/display' },
+    { text: '输入与按键', link: '/components/input' },
+    { text: '存储与文件', link: '/components/storage' },
+    { text: '界面组件', link: '/components/ui' }
+  ]
+}
+
+const developerAndComponentsSidebar = [developerSidebar, componentSidebar]
+
 export default defineConfig({
   lang: 'zh-CN',
   title: 'JustRead 文档',
@@ -49,28 +74,8 @@ export default defineConfig({
           ]
         }
       ],
-      '/developer/': [
-        {
-          text: '开发指南',
-          items: [
-            { text: '开发总览', link: '/developer/overview' },
-            { text: '环境搭建', link: '/developer/setup' },
-            { text: '构建、烧录与调试', link: '/developer/build-flash-debug' },
-            { text: '代码结构', link: '/developer/codebase' },
-            { text: '贡献与发布', link: '/developer/contributing-and-release' }
-          ]
-        },
-        {
-          text: '组件查询',
-          items: [
-            { text: '组件目录', link: '/components/index' },
-            { text: '显示与刷新', link: '/components/display' },
-            { text: '输入与按键', link: '/components/input' },
-            { text: '存储与文件', link: '/components/storage' },
-            { text: '界面组件', link: '/components/ui' }
-          ]
-        }
-      ],
+      '/developer/': developerAndComponentsSidebar,
+      '/components/': developerAndComponentsSidebar,
       '/design/': [
         {
           text: '基线与设备',
@@ -85,9 +90,16 @@ export default defineConfig({
           text: '视觉与布局',
           items: [
             { text: '视觉 Token、排版与留白', link: '/design/visual-and-typography' },
+            { text: 'Lucide SVG 点阵生成与高清化', link: '/design/lucide-bitmap-assets' },
             { text: '系统栏、画布与热区', link: '/design/system-layout' },
             { text: '系统组件留白与区域分配', link: '/design/spacing-and-regions' },
             { text: '分隔线与边界', link: '/design/separators' }
+          ]
+        },
+        {
+          text: '启动与错误状态',
+          items: [
+            { text: 'OOBE 与警告页', link: '/design/oobe-and-warnings' }
           ]
         },
         {
@@ -114,7 +126,7 @@ export default defineConfig({
             { text: 'AI 辅助设计约定', link: '/design/agent-workflow' },
             { text: '旧截图与 CSS 迁移', link: '/design/migration-notes' },
             { text: '术语表', link: '/design/glossary' },
-            { text: '来源、版本与待定事项', link: '/design/sources-and-decisions' }
+            { text: '来源与待定事项', link: '/design/sources-and-decisions' }
           ]
         }
       ]
