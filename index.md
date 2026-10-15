@@ -2,23 +2,26 @@
 layout: home
 hero:
   name: JustRead
-  #text: 简洁好看的小纸 Pico 固件
-  tagline: 简洁好看的小纸 Pico 固件
+  tagline: 简洁好看的阅读器固件
   actions:
     - theme: brand
       text: 在线刷机
       link: /flash
     - theme: alt
+      text: 阅云 Reader Cloud
+      link: https://cdn.xmoa.smn.icu/
+    - theme: alt
       text: 使用指南
       link: /guide/overview
+
 features:
-  - title: 使用说明
-    details: 从首次使用到日常阅读、设置和故障排查。具体功能以对应固件版本为准。
-    link: /user/overview
-  - title: 开发指南
-    details: 逐步补齐环境搭建、构建烧录、代码结构和贡献发布流程。
-    link: /developer/overview
-  - title: 设计与组件
-    details: 集中维护交互规范、系统设计和组件接口，便于实现与评审时查阅。
-    link: /design/overview
+  - title: 让墨水屏回归阅读
+    details: 以阅读为中心，打造简单好用的系统体验
+  - title: 为阅读优化的翻页体验
+    details: 通过页缓存、邻章预载和墨水屏刷新策略改善连续阅读
+  - title: 个性化的使用体验
+    details: 可调整字体、字号、行距、刷新模式和锁屏模板
+  - title: Lua 插件与云端市场
+    details: 从 SD 卡运行 Lua 插件，并从已审核的云端目录安装插件和锁屏模板
+
 ---

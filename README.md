@@ -21,6 +21,10 @@ pnpm docs:build    # 生成静态站点
 pnpm docs:preview  # 预览静态构建结果
 ```
 
+## 在线刷机资源
+
+刷机页从 `public/firmware.json` 读取固件与首次启动资源配置。JustRead 全量镜像位于 `public/assets/bin/justread-pico-full.bin`，系统字体位于 `public/assets/oobe/system.ttf`；构建后仍通过对应的 `/assets/` 路径提供。这些文件是独立刷机页资源的副本，更新资源时需同时更新此处的文件及 manifest 中的大小和摘要。原厂固件继续使用 manifest 中的原有下载地址。
+
 ## AI Agent 访问
 
 站点已接入 `vitepress-plugin-llms`，构建时生成供 Agent 直接读取的 Markdown。目录结构使用站点侧边栏分组。

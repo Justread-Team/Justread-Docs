@@ -1,6 +1,6 @@
 # 开发总览
 
-本部分面向 JustRead 固件开发者。先记录经过验证的开发流程，再把复杂主题拆成独立页面。
+本部分面向 JustRead 固件开发者。设备代码位于独立仓库 `JustRead/`；文档站位于 `justread_docs/`，两者有各自的工具链和 Git 历史。
 
 ## 开发路径
 
@@ -9,8 +9,10 @@
 3. 按[构建、烧录与调试](/developer/build-flash-debug)验证修改。
 4. 按[贡献与发布](/developer/contributing-and-release)提交变更并记录兼容性。
 
-工具链版本、构建命令和目标板信息均待从仓库与项目维护者处核实。
+固件目标为 ESP-IDF 6.1、ESP32-S3、小纸 Pico 684 × 1216 逻辑分辨率。宿主 UI 构建还需要 CMake、Ninja、C/C++ 编译器和 Python 工具环境。
 
 ## 插件开发
 
-- [Lua 插件 API](/developer/lua-plugin-api)：插件入口、系统状态栏与顶栏、可选底栏和自定义图标格式。
+- [Lua 插件 API](/developer/lua-plugin-api)：设备当前实现的 SD 卡 Lua 插件入口与 API。
+
+设计目录中的 Mini App 和系统 SDK 内容是设计草案；不要将其当作当前设备运行时接口。

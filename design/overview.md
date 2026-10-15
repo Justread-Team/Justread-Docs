@@ -1,6 +1,6 @@
 # 设计规范总览
 
-本组文档定义JustRead在Read Pico上的系统界面、Mini App与首页小组件目标设计。内容来自v0.2.1设计草案和v0.2 Skill入口草案，按查询主题拆分，保留必须、建议与待验证的区别。
+本组文档整理 JustRead 在 Read Pico 上的系统界面、Mini App 与首页小组件目标设计。内容来自 v0.2.1 设计草案和 v0.2 Skill 入口草案，按查询主题拆分，保留必须、建议与待验证的区别。当前设备页面由 C UI 实现，扩展方式是 SD 卡 Lua 插件；Mini App 和系统组件 SDK 仍是拟议接口。
 
 先读[范围与原则](/design/principles-and-scope)和[设备与单位](/design/device-and-units)，再按任务查阅。设计已写成规则，不代表系统组件、SDK或固件行为已经实现。
 
@@ -18,7 +18,7 @@
 
 - [OOBE 与警告页](/design/oobe-and-warnings)：启动资源载入、错误图标选择、Wi-Fi／串口安装与 SD 重载状态。
 - [导航、分页与状态](/design/interaction-and-states)：整页切换、返回、指示器和异常状态。
-- [按键、菜单、截图与电源](/design/system-actions)：全局动作、临时覆盖层与待定锁屏。
+- [按键、菜单、截图与电源](/design/system-actions)：全局动作、临时覆盖层和锁屏交互建议；锁屏功能已在设备固件中实现，具体能力见[使用说明](/user/settings-and-updates)。
 - [刷新调度与功耗](/design/refresh-and-power)：变化区域、完整清除、合并与实测策略。
 
 ## 组件与平台设计

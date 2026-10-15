@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "target": "ESP32-S3",
+  "flashBytes": 16777216,
+  "firmwares": {
+    "justread": {
+      "label": "JustRead · 小纸 Pico",
+      "url": "/assets/bin/justread-pico-full.bin",
+      "bytes": 16777216,
+      "sha256": "a401458cdc9b6a1de4796909a761f89dffad2576d4bd92ea0b426e8f164049d7"
+    },
+    "factory": {
+      "label": "MindReset 原厂固件",
+      "url": "https://assets.crossmux.cn/firmware/builds/readpico-factory/28cde682a4468a581c278761922724f57d976418/readpico-factory.bin",
+      "bytes": 16777216,
+      "sha256": "3dda5bfa22b8dbd27d411b960e6153c184a9c2fca7d97ad0bc8a5c7ac219a719"
+    }
+  },
+  "resources": {
+    "systemFont": {
+      "label": "JustRead 系统字体",
+      "url": "/assets/oobe/system.ttf",
+      "bytes": 16320196,
+      "sha256": "966286fc44907d4123528e1efb98c08e51fff013cd083140fdad1bf6b593555c",
+      "blockBytes": 16384
+    }
+  }
+}

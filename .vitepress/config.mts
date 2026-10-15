@@ -37,7 +37,7 @@ export default defineConfig({
     plugins: [
       llmstxt({
         ignoreFiles: ['README.md', 'public/**'],
-        details: '设计规范以 v0.2.1 草案为基线，系统组件和 Mini App 接口仍属拟议契约。请先阅读 /design/overview.md，再按目录查询具体主题；使用说明和开发指南中仍有待补充页面。',
+        details: '使用说明和开发指南依据当前 JustRead 固件代码整理。设计目录中的 Mini App、系统组件 SDK 与应用声明接口仍是提案；设备当前扩展方式是 SD 卡 Lua 插件。请先阅读 /guide/overview.md，再按目录查询主题。',
         customLLMsTxtTemplate: '# {title}\n\n{description}\n\n{details}\n\n## 文档目录\n\n{toc}'
       })
     ]
@@ -47,8 +47,8 @@ export default defineConfig({
     nav: [
       { text: '开始使用', link: '/guide/overview' },
       { text: '使用说明', link: '/user/overview' },
-      { text: '开发指南', link: '/developer/overview' },
       { text: '在线刷机', link: '/flash' },
+      { text: '开发指南', link: '/developer/overview' },
       { text: '设计规范', link: '/design/overview' }
     ],
     sidebar: {
@@ -147,7 +147,7 @@ export default defineConfig({
     },
     footer: {
       message: 'JustRead 项目文档',
-      copyright: '内容以各页面注明的固件版本为准。'
+      copyright: 'copyright © 2026 JustRead Team'
     }
   }
 })
