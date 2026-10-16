@@ -93,12 +93,6 @@ const firmwareName = computed(() => {
   return `${selectedModel.value.display_name} · JustRead${manifest.value?.version ? ` ${manifest.value.version}` : ''}`
 })
 const canFlash = computed(() => Boolean(manifest.value?.flash?.files.length))
-const flashConfirmationDescription = computed(() => {
-  const flash = manifest.value?.flash
-  if (!flash) return '当前型号没有可用的分区刷机清单。'
-  const partitions = flash.files.map((file) => imageLabel(file.kind)).join('、')
-  return `这会写入 ${selectedModel.value?.display_name ?? flash.model_id} 的 ${partitions}，并逐个回读校验。刷机不会擦除整片 Flash；${flash.notes ?? '只会改写清单列出的分区。'}`
-})
 const resourceCompletionText = computed(() => {
   if (resourceResult.value === 'already') return '设备已有有效系统字体，请继续在设备屏幕完成首次启动引导。'
   if (resourceResult.value === 'not-needed') return '设备当前不需要导入首次启动资源。'
@@ -210,8 +204,8 @@ async function loadModels() {
     models.value = loadedModels
     if (!loadedModels.some((model) => model.id === selectedModelId.value)) selectedModelId.value = loadedModels[0].id
     await loadManifest()
-  } catch (error) {
-    manifestError.value = error instanceof Error ? error.message : '固件配置加载失败。'
+  } catch {
+    manifestError.value = '刷机信息加载失败，请刷新网页重试。'
     models.value = []
     manifest.value = null
   } finally {
@@ -274,8 +268,8 @@ async function loadManifest() {
         },
       },
     }
-  } catch (error) {
-    if (request === manifestRequest) manifestError.value = error instanceof Error ? error.message : 'Cloud 发布信息读取失败。'
+  } catch {
+    if (request === manifestRequest) manifestError.value = '刷机信息加载失败，请刷新网页重试。'
   } finally {
     if (request === manifestRequest) manifestLoading.value = false
   }
@@ -430,7 +424,7 @@ async function startFlashing() {
     }
     activeStepIndex.value = 4
     status.value = '复位设备…'
-    await loader.after('hard_reset')
+    await loader.after('custom_reset', false, 'R1|W100|R0')
     activeStepIndex.value = flashSteps.length
     progress.value = 100
     resourceStatus.value = '固件已刷写完成。请重新连接设备并导入首次启动资源。'
@@ -770,13 +764,7 @@ async function startResourceImport() {
             {{ device.display_name }}
           </option>
         </select>
-        <p v-if="selectedModel" class="model-identity">型号 ID：<code>{{ selectedModel.id }}</code></p>
-        <p v-if="manifest?.version">当前 JustRead 版本：{{ manifest.version }}</p>
-        <p v-if="manifest?.flash" class="flash-partition-list">
-          将按 Cloud 清单刷写：{{ manifest.flash.files.map((file) => imageLabel(file.kind)).join('、') }}。
-          不会擦除整片 Flash。{{ manifest.flash.notes }}
-        </p>
-        <p v-else-if="selectedModel && !selectedModel.web_flash_manifest" class="connection-error" role="status">
+        <p v-if="selectedModel && !selectedModel.web_flash_manifest" class="connection-error" role="status">
           此型号尚未发布网页刷机分区清单。
         </p>
         <VPButton
@@ -788,7 +776,6 @@ async function startResourceImport() {
         <VPButton text="资源导入" theme="alt" :disabled="isBusy || connecting || !manifest" @click="openResourceImport" />
         <p v-if="manifestLoading">正在从 Cloud 读取型号和资源清单…</p>
         <p v-if="manifestError" class="connection-error" role="alert">{{ manifestError }}</p>
-        <VPButton v-if="manifestError" text="重新加载 Cloud 清单" theme="alt" :disabled="isBusy || manifestLoading" @click="loadModels" />
         <p v-if="errorMessage" class="connection-error" role="alert">{{ errorMessage }}</p>
       </div>
     </section>
@@ -797,12 +784,10 @@ async function startResourceImport() {
       ref="confirmDialog"
       class="flash-confirm-dialog"
       aria-labelledby="flash-confirm-title"
-      aria-describedby="flash-confirm-description"
       @cancel.prevent="settleFlashConfirmation(false)"
       @click.self="settleFlashConfirmation(false)"
     >
       <h2 id="flash-confirm-title" class="flash-confirm-title">确认刷写 {{ pendingFirmwareName }}</h2>
-      <p id="flash-confirm-description" class="flash-confirm-description">{{ flashConfirmationDescription }}</p>
       <div class="dialog-actions">
         <VPButton text="取消" theme="alt" @click="settleFlashConfirmation(false)" />
         <VPButton text="确定" @click="settleFlashConfirmation(true)" />
@@ -844,7 +829,13 @@ async function startResourceImport() {
 
 .flash-confirm-dialog {
   box-sizing: border-box;
-  width: min(calc(100% - 2rem), 32rem);
+  position: fixed;
+  inset: 50% auto auto 50%;
+  width: min(calc(100vw - 2rem), 32rem);
+  max-height: calc(100vh - 2rem);
+  margin: 0;
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
   padding: 1rem;
   border: 0;
   border-radius: 12px;
@@ -866,14 +857,6 @@ async function startResourceImport() {
   line-height: 1.4;
 }
 
-.flash-confirm-dialog #flash-confirm-description {
-  margin: 0.5rem 0 0.75rem;
-  padding: 0;
-  color: var(--vp-c-text-2);
-  font: inherit;
-  line-height: 1.6;
-}
-
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
@@ -888,7 +871,10 @@ async function startResourceImport() {
 .selection-form select {
   width: 100%;
   min-height: 2.5rem;
+  border: 1px solid var(--vp-c-divider);
   border-radius: 10px;
+  background-color: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
   padding: 0.25rem 1rem;
   appearance: auto;
   -webkit-appearance: menulist;
