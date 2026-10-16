@@ -764,6 +764,19 @@ async function startResourceImport() {
             {{ device.display_name }}
           </option>
         </select>
+        <div v-if="selectedModel" class="device-meta" aria-label="设备固件信息">
+          <div class="device-meta-row">
+            <span class="device-meta-label">设备型号</span>
+            <span class="device-meta-value">
+              <span>{{ selectedModel.display_name }}</span>
+              <code>{{ selectedModel.id }}</code>
+            </span>
+          </div>
+          <div class="device-meta-row">
+            <span class="device-meta-label">JustRead 版本</span>
+            <code class="device-meta-value">{{ manifest?.version ?? (manifestLoading ? '读取中…' : '—') }}</code>
+          </div>
+        </div>
         <p v-if="selectedModel && !selectedModel.web_flash_manifest" class="connection-error" role="status">
           此型号尚未发布网页刷机分区清单。
         </p>
@@ -816,10 +829,6 @@ async function startResourceImport() {
   width: min(100%, 28rem);
   gap: 1.25rem;
   padding: 2rem;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 18px;
-  background: var(--vp-c-bg);
-  box-shadow: var(--vp-shadow-1);
   text-align: left;
 }
 
@@ -878,6 +887,36 @@ async function startResourceImport() {
   padding: 0.25rem 1rem;
   appearance: auto;
   -webkit-appearance: menulist;
+}
+
+.device-meta {
+  display: grid;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: var(--vp-c-bg-soft);
+}
+
+.device-meta-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.device-meta-label {
+  flex: none;
+  color: var(--vp-c-text-2);
+}
+
+.device-meta-value {
+  display: grid;
+  justify-items: end;
+  gap: 0.15rem;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .field-label {
