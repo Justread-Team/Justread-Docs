@@ -5,19 +5,43 @@ import { ESPLoader, Transport } from 'esptool-js'
 // spark-md5 does not publish its own TypeScript declarations.
 // @ts-expect-error -- CommonJS package without declaration files.
 import SparkMD5 from 'spark-md5'
-import { withBase } from 'vitepress'
 import { VPButton } from 'vitepress/theme'
 
 type SerialPortHandle = ConstructorParameters<typeof Transport>[0]
 type SerialPortInfo = { usbVendorId?: number; usbProductId?: number }
-type FirmwareChoice = 'justread' | 'factory'
 type FirmwareAsset = { label: string; url: string; bytes: number; sha256?: string }
 type ResourceAsset = FirmwareAsset & { blockBytes: number }
+type DeviceFlashProfile = {
+  chip: string
+  flash_size: string
+  flash_mode: string
+  flash_freq: string
+  erase_all: boolean
+  partitions: Record<string, number>
+}
+type DeviceModel = {
+  id: string
+  display_name: string
+  resource_path: string
+  ota_manifest: string
+  web_flash_manifest?: string
+  flash: DeviceFlashProfile
+}
+type FlashImage = { kind: string; path: string; address: number | string; bytes: number; sha256: string }
+type WebFlashManifest = {
+  model_id: string
+  chip: string
+  flash_size: string
+  flash_mode: string
+  flash_freq: string
+  erase_all: boolean
+  files: FlashImage[]
+  notes?: string
+}
 type FirmwareManifest = {
-  schemaVersion: number
-  target: string
-  flashBytes: number
-  firmwares: Record<FirmwareChoice, FirmwareAsset>
+  model_id: string
+  version: string
+  flash: WebFlashManifest | null
   resources: { systemFont: ResourceAsset }
 }
 type FlashState =
@@ -34,16 +58,15 @@ type SerialApi = {
   requestPort(options: { filters: Array<{ usbVendorId: number; usbProductId: number }> }): Promise<SerialPortHandle>
 }
 
-const FLASH_BYTES = 16 * 1024 * 1024
-const JUSTREAD_PROJECT = 'Read_Pico'
+const CLOUD_ORIGIN = 'https://cdn.xmoa.smn.icu'
+const DOWNLOADS_PATH = '/downloads/'
+const RESOURCE_BLOCK_BYTES = 16 * 1024
 const deviceFilters = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }]
-const devices = [{ id: 'pico-esp32-s3', label: '小纸 Pico · ESP32-S3' }]
-const flashSteps = ['下载并校验固件', '连接设备', '安装固件', '验证安装结果', '重置设备']
+const flashSteps = ['下载并校验分区镜像', '连接并识别设备', '写入清单分区', '回读校验分区', '复位设备']
 
 const selectedDevice = ref<SerialPortHandle | null>(null)
-const selectedModel = ref(devices[0].id)
-const selectedVersion = ref<FirmwareChoice | 'custom'>('justread')
-const customFirmwareFile = ref<File | null>(null)
+const models = ref<DeviceModel[]>([])
+const selectedModelId = ref('')
 const errorMessage = ref('')
 const connecting = ref(false)
 const isBusy = ref(false)
@@ -51,7 +74,6 @@ const flashState = ref<FlashState>('start')
 const activeStepIndex = ref(0)
 const progress = ref(0)
 const status = ref('')
-const completedFirmwareName = ref('')
 const pendingFirmwareName = ref('')
 const confirmDialog = ref<HTMLDialogElement | null>(null)
 const manifest = ref<FirmwareManifest | null>(null)
@@ -63,47 +85,211 @@ const resourceError = ref('')
 const resourceResult = ref<'installed' | 'already' | 'not-needed' | ''>('')
 let resolveFlashConfirmation: ((confirmed: boolean) => void) | null = null
 let activeTransport: Transport | null = null
+let manifestRequest = 0
 
-const firmwareVersions = computed(() => [
-  { id: 'justread', label: manifest.value?.firmwares.justread.label ?? 'JustRead · 小纸 Pico' },
-  { id: 'factory', label: manifest.value?.firmwares.factory.label ?? 'MindReset 原厂固件' },
-])
-const firmwareName = computed(() => selectedVersion.value === 'custom'
-  ? '自定义 · ' + (customFirmwareFile.value?.name ?? '未选择文件')
-  : firmwareVersions.value.find(({ id }) => id === selectedVersion.value)!.label)
-const canFlash = computed(() => selectedVersion.value === 'custom'
-  ? Boolean(customFirmwareFile.value)
-  : Boolean(manifest.value?.firmwares[selectedVersion.value]))
+const selectedModel = computed(() => models.value.find((model) => model.id === selectedModelId.value) ?? null)
+const firmwareName = computed(() => {
+  if (!selectedModel.value) return 'JustRead'
+  return `${selectedModel.value.display_name} · JustRead${manifest.value?.version ? ` ${manifest.value.version}` : ''}`
+})
+const canFlash = computed(() => Boolean(manifest.value?.flash?.files.length))
+const flashConfirmationDescription = computed(() => {
+  const flash = manifest.value?.flash
+  if (!flash) return '当前型号没有可用的分区刷机清单。'
+  const partitions = flash.files.map((file) => imageLabel(file.kind)).join('、')
+  return `这会写入 ${selectedModel.value?.display_name ?? flash.model_id} 的 ${partitions}，并逐个回读校验。刷机不会擦除整片 Flash；${flash.notes ?? '只会改写清单列出的分区。'}`
+})
 const resourceCompletionText = computed(() => {
   if (resourceResult.value === 'already') return '设备已有有效系统字体，请继续在设备屏幕完成首次启动引导。'
   if (resourceResult.value === 'not-needed') return '设备当前不需要导入首次启动资源。'
   return '系统字体已写入设备 SD 卡。请在设备屏幕上选择登录或注册云账户，或暂不使用并进入书架。'
 })
 
-onMounted(() => { void loadManifest() })
+onMounted(() => { void loadModels() })
 onBeforeUnmount(() => { settleFlashConfirmation(false) })
 
-async function loadManifest() {
+function cloudDownloadUrl(path: string) {
+  if (!path.startsWith(DOWNLOADS_PATH) || path.includes('..')) throw new Error('Cloud 下载路径无效。')
+  const url = new URL(path, CLOUD_ORIGIN)
+  if (url.origin !== CLOUD_ORIGIN || !url.pathname.startsWith(DOWNLOADS_PATH)) throw new Error('Cloud 下载路径无效。')
+  return url.toString()
+}
+
+function isDeviceModel(value: unknown): value is DeviceModel {
+  if (!value || typeof value !== 'object') return false
+  const model = value as Partial<DeviceModel>
+  const flash = model.flash
+  return typeof model.id === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(model.id)
+    && typeof model.display_name === 'string' && model.display_name.trim().length > 0
+    && model.resource_path === `${DOWNLOADS_PATH}${model.id}/`
+    && model.ota_manifest === `${model.resource_path}release.json`
+    && (model.web_flash_manifest === undefined || model.web_flash_manifest === `${model.resource_path}web-flash.json`)
+    && !!flash && typeof flash.chip === 'string' && typeof flash.flash_size === 'string'
+    && typeof flash.flash_mode === 'string' && typeof flash.flash_freq === 'string'
+    && flash.erase_all === false && !!flash.partitions && typeof flash.partitions === 'object'
+    && !Array.isArray(flash.partitions) && Object.keys(flash.partitions).length > 0
+    && Object.values(flash.partitions).every((address) => Number.isSafeInteger(address) && address >= 0)
+}
+
+function isAsset(value: unknown, expectedPath?: string): value is { path: string; bytes: number; sha256: string } {
+  if (!value || typeof value !== 'object') return false
+  const asset = value as Partial<{ path: string; bytes: number; sha256: string }>
+  if (typeof asset.path !== 'string' || !asset.path.startsWith(DOWNLOADS_PATH) || asset.path.includes('..')) return false
+  if (expectedPath && asset.path !== expectedPath) return false
+  if (!Number.isSafeInteger(asset.bytes) || (asset.bytes ?? 0) <= 0 || typeof asset.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(asset.sha256)) return false
+  try { cloudDownloadUrl(asset.path) } catch { return false }
+  return true
+}
+
+function parseAddress(value: number | string) {
+  return typeof value === 'number' ? value : Number(value)
+}
+
+function flashCapacityBytes(value: string) {
+  const match = /^(\d+)(?:MB|MiB)$/i.exec(value)
+  return match ? Number(match[1]) * 1024 * 1024 : 0
+}
+
+function imageLabel(kind: string) {
+  const labels: Record<string, string> = {
+    bootloader: 'Bootloader',
+    partition_table: '分区表',
+    ota_data: 'OTA 启动数据',
+    application: 'JustRead 应用',
+  }
+  return labels[kind] ?? kind
+}
+
+function validWebFlashManifest(value: unknown, model: DeviceModel): value is WebFlashManifest {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Partial<WebFlashManifest>
+  const expected = model.flash.partitions
+  const capacity = flashCapacityBytes(model.flash.flash_size)
+  if (item.model_id !== model.id || item.chip !== model.flash.chip || item.flash_size !== model.flash.flash_size
+      || item.flash_mode !== model.flash.flash_mode || item.flash_freq !== model.flash.flash_freq
+      || item.erase_all !== false || !capacity || !Array.isArray(item.files)
+      || item.files.length !== Object.keys(expected).length
+      || (item.notes !== undefined && (typeof item.notes !== 'string' || item.notes.length > 300))) return false
+  const kinds = new Set<string>()
+  const paths = new Set<string>()
+  for (const file of item.files) {
+    if (!file || typeof file.kind !== 'string' || !Object.hasOwn(expected, file.kind)
+        || kinds.has(file.kind)
+        || !(typeof file.address === 'number' || (typeof file.address === 'string' && /^0x[0-9a-f]+$/i.test(file.address)))
+        || parseAddress(file.address) !== expected[file.kind]
+        || typeof file.path !== 'string' || !file.path.startsWith(model.resource_path)
+        || file.path.includes('..') || paths.has(file.path)
+        || !Number.isSafeInteger(file.bytes) || file.bytes <= 0
+        || typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(file.sha256)) return false
+    const address = parseAddress(file.address)
+    if (address + file.bytes > capacity) return false
+    const nextPartition = Object.values(expected).filter((next) => next > address).sort((left, right) => left - right)[0]
+    if (nextPartition !== undefined && address + file.bytes > nextPartition) return false
+    try { cloudDownloadUrl(file.path) } catch { return false }
+    kinds.add(file.kind)
+    paths.add(file.path)
+  }
+  return kinds.size === Object.keys(expected).length
+}
+
+async function loadModels() {
   manifestLoading.value = true
   manifestError.value = ''
+  manifest.value = null
   try {
-    const response = await fetch(withBase('/firmware.json'), { cache: 'no-store' })
-    if (!response.ok) throw new Error('固件配置加载失败。')
-    const data = await response.json() as FirmwareManifest
-    const font = data.resources?.systemFont
-    if (
-      data.schemaVersion !== 1 || data.target !== 'ESP32-S3' || data.flashBytes !== FLASH_BYTES
-      || !data.firmwares?.justread?.url || data.firmwares.justread.bytes !== FLASH_BYTES
-      || !data.firmwares?.factory?.url || data.firmwares.factory.bytes !== FLASH_BYTES
-      || !font?.url || !Number.isSafeInteger(font.bytes) || font.bytes <= 0
-      || !Number.isSafeInteger(font.blockBytes) || font.blockBytes <= 0
-    ) throw new Error('固件配置格式无效。')
-    manifest.value = data
+    const response = await fetch(`${CLOUD_ORIGIN}${DOWNLOADS_PATH}models.json`, { cache: 'no-store' })
+    if (!response.ok) throw new Error(`Cloud 型号清单读取失败（HTTP ${response.status}）。`)
+    const catalog: unknown = await response.json()
+    if (!catalog || typeof catalog !== 'object') throw new Error('Cloud 型号清单格式无效。')
+    const value = catalog as { schema_version?: unknown; models?: unknown }
+    if (value.schema_version !== 1 || !Array.isArray(value.models) || !value.models.length || !value.models.every(isDeviceModel)) {
+      throw new Error('Cloud 型号清单格式无效。')
+    }
+    const loadedModels = value.models as DeviceModel[]
+    if (new Set(loadedModels.map((model) => model.id)).size !== loadedModels.length) throw new Error('Cloud 型号清单包含重复型号。')
+    models.value = loadedModels
+    if (!loadedModels.some((model) => model.id === selectedModelId.value)) selectedModelId.value = loadedModels[0].id
+    await loadManifest()
   } catch (error) {
     manifestError.value = error instanceof Error ? error.message : '固件配置加载失败。'
+    models.value = []
+    manifest.value = null
   } finally {
     manifestLoading.value = false
   }
+}
+
+async function loadManifest() {
+  const request = ++manifestRequest
+  const model = selectedModel.value
+  manifestLoading.value = true
+  manifestError.value = ''
+  manifest.value = null
+  if (!model) {
+    manifestLoading.value = false
+    return
+  }
+  try {
+    const requests = [fetch(cloudDownloadUrl(model.ota_manifest), { cache: 'no-store' })]
+    if (model.web_flash_manifest) requests.push(fetch(cloudDownloadUrl(model.web_flash_manifest), { cache: 'no-store' }))
+    const responses = await Promise.all(requests)
+    if (!responses[0].ok) throw new Error(`Cloud 发布清单读取失败（HTTP ${responses[0].status}）。`)
+    const releaseValue: unknown = await responses[0].json()
+    if (!releaseValue || typeof releaseValue !== 'object') throw new Error('Cloud 发布清单格式无效。')
+    const release = releaseValue as {
+      model_id?: unknown; version?: unknown; firmware?: unknown; system_font?: unknown
+    }
+    if (release.model_id !== model.id || typeof release.version !== 'string' || !release.version
+        || !isAsset(release.firmware, `${model.resource_path}firmware.bin`)
+        || !isAsset(release.system_font, `${DOWNLOADS_PATH}shared/system.ttf`)) {
+      throw new Error('Cloud 发布清单与型号不匹配。')
+    }
+    let flash: WebFlashManifest | null = null
+    if (model.web_flash_manifest) {
+      if (!responses[1].ok) throw new Error(`Cloud 分区刷机清单读取失败（HTTP ${responses[1].status}）。`)
+      const flashValue: unknown = await responses[1].json()
+      if (!validWebFlashManifest(flashValue, model)) throw new Error('分区刷机清单与设备型号的地址布局不匹配。')
+      flash = flashValue
+      const application = flash.files.find((file) => file.kind === 'application')
+      const firmware = release.firmware
+      if (!application || !isAsset(firmware, `${model.resource_path}firmware.bin`)
+          || application.path !== firmware.path || application.bytes !== firmware.bytes
+          || application.sha256.toLowerCase() !== firmware.sha256.toLowerCase()) {
+        throw new Error('网页刷机应用镜像与 OTA 发布清单不一致。')
+      }
+    }
+    if (request !== manifestRequest) return
+    const font = release.system_font
+    manifest.value = {
+      model_id: model.id,
+      version: release.version,
+      flash,
+      resources: {
+        systemFont: {
+          label: 'JustRead 系统字体',
+          url: cloudDownloadUrl(font.path),
+          bytes: font.bytes,
+          sha256: font.sha256,
+          blockBytes: RESOURCE_BLOCK_BYTES,
+        },
+      },
+    }
+  } catch (error) {
+    if (request === manifestRequest) manifestError.value = error instanceof Error ? error.message : 'Cloud 发布信息读取失败。'
+  } finally {
+    if (request === manifestRequest) manifestLoading.value = false
+  }
+}
+
+function changeModel(event: Event) {
+  if (isBusy.value || connecting.value) return
+  const nextModelId = (event.target as HTMLSelectElement).value
+  if (!models.value.some((model) => model.id === nextModelId) || nextModelId === selectedModelId.value) return
+  selectedModelId.value = nextModelId
+  selectedDevice.value = null
+  flashState.value = 'start'
+  errorMessage.value = ''
+  void loadManifest()
 }
 
 function getSerialApi() {
@@ -136,23 +322,6 @@ async function connectDevice() {
   }
 }
 
-function chooseCustomFirmware(event: Event) {
-  if (isBusy.value) return
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  if (file.size !== FLASH_BYTES) {
-    customFirmwareFile.value = null
-    selectedVersion.value = 'justread'
-    input.value = ''
-    errorMessage.value = '自定义固件须为 16 MiB 整片镜像。'
-    return
-  }
-  errorMessage.value = ''
-  customFirmwareFile.value = file
-  selectedVersion.value = 'custom'
-}
-
 function sha256(data: Uint8Array) {
   return crypto.subtle.digest('SHA-256', data).then((digest) =>
     Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(''),
@@ -163,33 +332,8 @@ function md5(data: Uint8Array) {
   return SparkMD5.ArrayBuffer.hash(data.buffer)
 }
 
-function isEsp32S3Image(data: Uint8Array, offset = 0) {
-  return data[offset] === 0xe9 && data[offset + 12] === 0x09 && data[offset + 13] === 0x00
-}
-
-function appProjectName(data: Uint8Array, offset: number) {
-  const descriptorOffset = offset + 0x20
-  if (data.length < descriptorOffset + 256 || !isEsp32S3Image(data, offset)) return ''
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-  if (view.getUint32(descriptorOffset, true) !== 0xabcd5432) return ''
-  let end = descriptorOffset + 48
-  while (end < descriptorOffset + 80 && data[end] !== 0) end++
-  return new TextDecoder().decode(data.subarray(descriptorOffset + 48, end))
-}
-
-function validateFullImage(data: Uint8Array, choice: FirmwareChoice | 'custom') {
-  if (data.byteLength !== FLASH_BYTES) throw new Error('全量镜像大小必须为 16 MiB。')
-  if (!isEsp32S3Image(data) || data[0x8000] !== 0xaa || data[0x8001] !== 0x50 || !isEsp32S3Image(data, 0x10000)) {
-    throw new Error('镜像不是小纸 Pico ESP32-S3 的 16 MiB 全量镜像。')
-  }
-  if (choice === 'justread' && appProjectName(data, 0x10000) !== JUSTREAD_PROJECT) {
-    throw new Error('所选镜像不是 JustRead 固件。')
-  }
-}
-
 async function fetchVerifiedAsset(asset: FirmwareAsset, label: string) {
-  const url = asset.url.startsWith('/') && !asset.url.startsWith('//') ? withBase(asset.url) : asset.url
-  const response = await fetch(url, { cache: 'no-store' })
+  const response = await fetch(asset.url, { cache: 'no-store' })
   if (!response.ok) throw new Error(label + '下载失败。')
   const data = new Uint8Array(await response.arrayBuffer())
   if (data.byteLength !== asset.bytes) throw new Error(label + '文件大小校验失败。')
@@ -199,22 +343,7 @@ async function fetchVerifiedAsset(asset: FirmwareAsset, label: string) {
   return data
 }
 
-async function loadFirmware(choice: FirmwareChoice | 'custom') {
-  if (choice === 'custom') {
-    const file = customFirmwareFile.value
-    if (!file) throw new Error('请选择固件文件。')
-    const data = new Uint8Array(await file.arrayBuffer())
-    validateFullImage(data, choice)
-    return { data, isJustRead: appProjectName(data, 0x10000) === JUSTREAD_PROJECT }
-  }
-  if (!manifest.value) throw new Error(manifestError.value || '固件配置尚未就绪。')
-  const asset = manifest.value.firmwares[choice]
-  const data = await fetchVerifiedAsset(asset, asset.label)
-  validateFullImage(data, choice)
-  return { data, isJustRead: choice === 'justread' }
-}
-
-function confirmFullFlashWrite() {
+function confirmPartitionFlash() {
   return new Promise<boolean>((resolve) => {
     const dialog = confirmDialog.value
     if (!dialog) return resolve(false)
@@ -231,57 +360,81 @@ function settleFlashConfirmation(confirmed: boolean) {
 
 async function startFlashing() {
   const port = selectedDevice.value
-  if (isBusy.value || connecting.value || !port || !canFlash.value) return
-  const targetFirmware = selectedVersion.value
+  const flashManifest = manifest.value?.flash
+  const model = selectedModel.value
+  if (isBusy.value || connecting.value || !port || !flashManifest || !model) return
   pendingFirmwareName.value = firmwareName.value
   const targetFirmwareName = pendingFirmwareName.value
   isBusy.value = true
   try {
-    if (!(await confirmFullFlashWrite())) return
+    if (!(await confirmPartitionFlash())) return
     flashState.value = 'flashing'
     errorMessage.value = ''
-    completedFirmwareName.value = ''
     activeStepIndex.value = 0
     progress.value = 0
-    status.value = '获取并校验 16 MiB 固件…'
-    const firmware = await loadFirmware(targetFirmware)
+    status.value = '下载并校验分区镜像…'
+    const images = await Promise.all(flashManifest.files.map(async (file) => {
+      const label = imageLabel(file.kind)
+      status.value = `下载并校验 ${label}…`
+      const data = await fetchVerifiedAsset({
+        label,
+        url: cloudDownloadUrl(file.path),
+        bytes: file.bytes,
+        sha256: file.sha256,
+      }, label)
+      return { data, address: parseAddress(file.address), kind: file.kind }
+    }))
+    images.sort((left, right) => left.address - right.address)
     activeStepIndex.value = 1
-    status.value = '连接 ESP32-S3…'
+    status.value = `连接并识别 ${flashManifest.chip}…`
     const terminal = { clean() {}, writeLine(_data: string) {}, write(_data: string) {} }
     activeTransport = new Transport(port, false)
     const loader = new ESPLoader({ transport: activeTransport, baudrate: 460800, romBaudrate: 115200, terminal })
     const chipName = await loader.main()
-    if (!chipName.includes('ESP32-S3')) throw new Error('检测到的不是 ESP32-S3，未写入设备。')
-    if (await loader.detectFlashSize() !== '16MB') throw new Error('设备 Flash 容量不是 16 MiB，未写入设备。')
+    if (!chipName.toUpperCase().includes(flashManifest.chip.toUpperCase())) {
+      throw new Error(`检测到 ${chipName}，目标设备芯片必须是 ${flashManifest.chip}。`)
+    }
+    if (await loader.detectFlashSize() !== flashManifest.flash_size) {
+      throw new Error(`设备 Flash 容量与清单要求的 ${flashManifest.flash_size} 不符，未写入设备。`)
+    }
 
     activeStepIndex.value = 2
-    status.value = '写入 16 MiB 镜像…'
+    status.value = '写入清单列出的分区…'
+    const sizes = images.map((image) => image.data.byteLength)
+    const written = sizes.map(() => 0)
+    const total = sizes.reduce((sum, size) => sum + size, 0)
     await loader.writeFlash({
-      fileArray: [{ data: firmware.data, address: 0 }],
-      flashMode: 'keep', flashFreq: 'keep', flashSize: 'keep',
-      eraseAll: false, compress: true,
-      reportProgress: (_fileIndex, written, total) => {
-        progress.value = total ? Math.min(100, Math.floor((written / total) * 100)) : 0
+      fileArray: images.map((image) => ({ data: image.data, address: image.address })),
+      flashMode: flashManifest.flash_mode,
+      flashFreq: flashManifest.flash_freq,
+      flashSize: flashManifest.flash_size,
+      eraseAll: false,
+      compress: true,
+      reportProgress: (fileIndex, bytesWritten) => {
+        if (fileIndex < 0 || fileIndex >= written.length) return
+        written[fileIndex] = Math.min(sizes[fileIndex], bytesWritten)
+        progress.value = total ? Math.floor(written.reduce((sum, size) => sum + size, 0) / total * 100) : 0
+        status.value = `正在写入 ${imageLabel(images[fileIndex].kind)}…`
       },
     })
     activeStepIndex.value = 3
     progress.value = 0
-    status.value = '校验整片 Flash…'
-    if (await loader.flashMd5sum(0, FLASH_BYTES) !== md5(firmware.data)) {
-      throw new Error('整片写入校验失败，请保持 USB 连接并重试。')
+    status.value = '回读校验分区…'
+    let verifiedBytes = 0
+    for (const image of images) {
+      if (await loader.flashMd5sum(image.address, image.data.byteLength) !== md5(image.data)) {
+        throw new Error(`${imageLabel(image.kind)} 回读校验失败，请保持 USB 连接并重试。`)
+      }
+      verifiedBytes += image.data.byteLength
+      progress.value = total ? Math.floor(verifiedBytes / total * 100) : 100
     }
     activeStepIndex.value = 4
     status.value = '复位设备…'
-    await loader.after('custom_reset', false, 'R1|W100|R0')
+    await loader.after('hard_reset')
     activeStepIndex.value = flashSteps.length
     progress.value = 100
-    completedFirmwareName.value = targetFirmwareName
-    if (firmware.isJustRead) {
-      resourceStatus.value = '固件已刷写完成。请重新连接设备并导入首次启动资源。'
-      flashState.value = 'resources'
-    } else {
-      flashState.value = 'complete'
-    }
+    resourceStatus.value = '固件已刷写完成。请重新连接设备并导入首次启动资源。'
+    flashState.value = 'resources'
     status.value = targetFirmwareName + '刷写完成。'
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '刷写失败，请保持 USB 连接并重试。'
@@ -302,7 +455,6 @@ function returnToSelection() {
   activeStepIndex.value = 0
   progress.value = 0
   status.value = ''
-  completedFirmwareName.value = ''
   resourceStatus.value = ''
   resourceError.value = ''
   resourceProgress.value = 0
@@ -612,38 +764,21 @@ async function startResourceImport() {
       </div>
 
       <div v-else class="selection-form">
-        <label class="field-label" for="device-model">设备</label>
-        <select id="device-model" v-model="selectedModel" :disabled="isBusy || connecting">
-          <option v-for="device in devices" :key="device.id" :value="device.id">
-            {{ device.label }}
+        <label class="field-label" for="device-model">设备型号</label>
+        <select id="device-model" :value="selectedModelId" :disabled="isBusy || connecting || manifestLoading" @change="changeModel">
+          <option v-for="device in models" :key="device.id" :value="device.id">
+            {{ device.display_name }}
           </option>
         </select>
-
-        <label class="field-label" for="firmware-version">版本</label>
-        <select
-          id="firmware-version"
-          v-model="selectedVersion"
-          :disabled="isBusy || connecting || manifestLoading"
-        >
-          <option v-for="version in firmwareVersions" :key="version.id" :value="version.id">
-            {{ version.label }}
-          </option>
-          <option v-if="customFirmwareFile" value="custom">
-            自定义 · {{ customFirmwareFile.name }}
-          </option>
-        </select>
-
-        <input
-          id="custom-firmware"
-          class="visually-hidden"
-          type="file"
-          accept=".bin,application/octet-stream"
-          :disabled="isBusy || connecting"
-          @change="chooseCustomFirmware"
-        />
-        <label class="custom-file-link" for="custom-firmware">
-          {{ customFirmwareFile ? '更换自定义固件' : '选择自定义固件' }}
-        </label>
+        <p v-if="selectedModel" class="model-identity">型号 ID：<code>{{ selectedModel.id }}</code></p>
+        <p v-if="manifest?.version">当前 JustRead 版本：{{ manifest.version }}</p>
+        <p v-if="manifest?.flash" class="flash-partition-list">
+          将按 Cloud 清单刷写：{{ manifest.flash.files.map((file) => imageLabel(file.kind)).join('、') }}。
+          不会擦除整片 Flash。{{ manifest.flash.notes }}
+        </p>
+        <p v-else-if="selectedModel && !selectedModel.web_flash_manifest" class="connection-error" role="status">
+          此型号尚未发布网页刷机分区清单。
+        </p>
         <VPButton
           :text="isBusy ? '等待确认…' : connecting ? '正在连接…' : selectedDevice ? '开始刷机' : '连接设备'"
           size="big"
@@ -651,9 +786,9 @@ async function startResourceImport() {
           @click="selectedDevice ? startFlashing() : connectDevice()"
         />
         <VPButton text="资源导入" theme="alt" :disabled="isBusy || connecting || !manifest" @click="openResourceImport" />
-        <p v-if="manifestLoading">正在读取固件配置…</p>
+        <p v-if="manifestLoading">正在从 Cloud 读取型号和资源清单…</p>
         <p v-if="manifestError" class="connection-error" role="alert">{{ manifestError }}</p>
-        <VPButton v-if="manifestError" text="重新加载固件配置" theme="alt" :disabled="isBusy || manifestLoading" @click="loadManifest" />
+        <VPButton v-if="manifestError" text="重新加载 Cloud 清单" theme="alt" :disabled="isBusy || manifestLoading" @click="loadModels" />
         <p v-if="errorMessage" class="connection-error" role="alert">{{ errorMessage }}</p>
       </div>
     </section>
@@ -667,9 +802,7 @@ async function startResourceImport() {
       @click.self="settleFlashConfirmation(false)"
     >
       <h2 id="flash-confirm-title" class="flash-confirm-title">确认刷写 {{ pendingFirmwareName }}</h2>
-      <p id="flash-confirm-description" class="flash-confirm-description">
-        这会将固件写入整片 16 MiB Flash，并覆盖设备中的现有固件、设置和数据。
-      </p>
+      <p id="flash-confirm-description" class="flash-confirm-description">{{ flashConfirmationDescription }}</p>
       <div class="dialog-actions">
         <VPButton text="取消" theme="alt" @click="settleFlashConfirmation(false)" />
         <VPButton text="确定" @click="settleFlashConfirmation(true)" />
@@ -764,36 +897,6 @@ async function startResourceImport() {
 .field-label {
   color: var(--vp-c-text-2);
   font-weight: 600;
-}
-
-.custom-file-link {
-  justify-self: center;
-  color: var(--vp-c-brand-1);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
-
-.custom-file-link:hover {
-  color: var(--vp-c-brand-2);
-}
-
-.custom-file-link:focus-within,
-.visually-hidden:focus-visible + .custom-file-link {
-  outline: 2px solid var(--vp-c-brand-1);
-  outline-offset: 3px;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 .flash-status {

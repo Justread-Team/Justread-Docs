@@ -30,10 +30,10 @@ uv run --no-project --python <UV Python 环境目录>/bin/python python tools/fi
 ## 烧录方式
 
 - **OTA 更新**：设备设置页写入备用应用槽位，只适用于已有匹配分区表的设备。
-- **首次安装或分区迁移**：用在线刷机页写入 16 MiB 全量镜像，或根据发布包 `flash_args.txt` 写入所有镜像。不要用单独的 `firmware.bin` 更新分区表。
+- **首次安装或分区迁移**：在线刷机页从 Cloud 的 `models.json` 和型号 `web-flash.json` 读取镜像与分区地址，并逐个校验、写入和回读清单分区。发布包中的 `flash_args.txt` 也可用于命令行写入对应镜像。不要用单独的 OTA `firmware.bin` 更新分区表。
 - **USB SD 读卡**：设备重启进入 USB MSC 后，电脑安全弹出卡片，再从设备退出并重启。
 
-刷写前确认目标为 ESP32-S3 小纸 Pico。完整刷写会改写 Flash 和 NVS；需要保留的阅读进度和设置应先备份。本文不推断串口名称，按系统实际枚举结果选择设备。
+刷写前确认型号与 ESP32-S3 小纸 Pico 实机一致。网页刷机不擦除整片 Flash，会保留 NVS 和 SPIFFS；本文不推断串口名称，按系统实际枚举结果选择设备。
 
 ## 日志与问题定位
 

@@ -8,6 +8,6 @@
 
 ## 版本与产物
 
-`tools/firmware.py` 默认嵌入版本 `0.1.0`，可用 `--version` 指定语义版本。线上 OTA 版本来自 Reader Cloud `release.json`，发布时应与嵌入版本保持一致，并提供更新说明、字节数和 SHA-256。设备 OTA 发布的是应用 `firmware.bin`；首次安装或分区表迁移需要完整 16 MiB 镜像。
+`tools/firmware.py` 默认嵌入版本 `0.1.0`，可用 `--version` 指定语义版本。线上 OTA 版本来自型号目录中的 Reader Cloud `release.json`，发布时应与嵌入版本保持一致，并提供更新说明、字节数和 SHA-256。设备 OTA 发布独立应用 `firmware.bin`；网页刷机另外发布型号目录的 `web-flash.json` 和其列出的 Bootloader、分区表、OTA 启动数据、应用镜像，以支持首次安装和分区表迁移。
 
 发布前更新用户指南中与变化相关的页面，并记录适用硬件、固件版本、代码审查状态和实机验证状态。不要把 `--serial-bench` 镜像作为正式包发布。

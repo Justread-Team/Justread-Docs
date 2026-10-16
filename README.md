@@ -23,7 +23,7 @@ pnpm docs:preview  # 预览静态构建结果
 
 ## 在线刷机资源
 
-刷机页从 `public/firmware.json` 读取固件与首次启动资源配置。JustRead 全量镜像位于 `public/assets/bin/justread-pico-full.bin`，系统字体位于 `public/assets/oobe/system.ttf`；构建后仍通过对应的 `/assets/` 路径提供。这些文件是独立刷机页资源的副本，更新资源时需同时更新此处的文件及 manifest 中的大小和摘要。原厂固件继续使用 manifest 中的原有下载地址。
+刷机页从 `https://cdn.xmoa.smn.icu/downloads/models.json` 获取支持的设备型号，再按型号读取 `release.json` 和 `web-flash.json`。刷机按清单列出的分区文件执行，每个文件在写入前校验长度和 SHA-256，写入后逐个回读校验；刷机页不会擦除整片 Flash。首次启动系统字体的大小、SHA-256 和下载路径也来自该型号的 `release.json`，文件从 Cloud 的 `/downloads/shared/system.ttf` 获取。发布新资源时由 Cloud 发布流程更新这些 CDN 文件，不再将固件或字体复制到文档站。
 
 ## AI Agent 访问
 

@@ -4,9 +4,9 @@
 
 ### 刷入 JustRead
 
-在线刷机页用于小纸 Pico ESP32-S3。请使用 HTTPS 页面和 Chrome 或 Edge，通过 USB 连接设备。选择 **JustRead · 小纸 Pico**，选择设备串口，确认后写入 16 MiB 全量镜像。JustRead 预置镜像会按 manifest 校验大小和 SHA-256，并检查 ESP32-S3 镜像、分区表和 `Read_Pico` 项目名；原厂镜像按 manifest 和镜像结构校验。自定义镜像会校验大小和结构，选择 JustRead 时还会检查项目名。页面写入后会校验整片 Flash。全量刷写会覆盖设备 Flash；先备份设备中需要保留的数据。刷写器不会主动修改 SD 卡。
+在线刷机页从 Cloud 的型号清单读取支持设备，再按所选型号的 `web-flash.json` 获取分区地址和镜像摘要。请使用 HTTPS 页面和 Chrome 或 Edge，通过 USB 连接设备并选择对应型号。页面写入前会校验 Bootloader、分区表、OTA 启动数据和应用镜像的大小与 SHA-256，写入后逐分区回读校验；它不会擦除整片 Flash，NVS、SPIFFS 和 SD 卡文件会保留。USB 串口只能识别芯片，无法替用户确认产品型号。
 
-也可以选择原厂固件，或上传自定义的 16 MiB 全量镜像。普通 SD OTA 使用单独的应用 `firmware.bin`，不能代替在线刷机页要求的全量镜像。
+普通 SD OTA 使用单独的应用 `firmware.bin`，只更新备用应用槽位，不能代替首次安装或分区表迁移所需的网页分区刷写。
 
 ### 完成首次启动
 

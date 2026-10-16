@@ -12,7 +12,7 @@ JustRead 是小纸 Pico 的阅读器固件。设备端读取 SD 卡书籍，提�
 | --- | --- | --- | --- |
 | 构建脚本默认 `0.1.0`；发布版本以 CDN `release.json` 为准 | 小纸 Pico，ESP32-S3，16 MiB Flash，1216 × 684 面板 | TXT/EPUB 阅读、SD 卡字体、Wi-Fi、Reader Cloud、SD OTA、热点/局域网/USB 文件访问、Lua 插件与锁屏模板 | 代码已核对；硬件修订号及各版首次支持记录尚未集中维护 |
 
-`0.1.0` 是 `tools/firmware.py` 的默认嵌入版本，不等于当前线上发布版本。设备更新页从 `https://cdn.xmoa.smn.icu/downloads/release.json` 查询发布版本。
+`0.1.0` 是 `tools/firmware.py` 的默认嵌入版本，不等于当前线上发布版本。小纸 Pico 的设备更新页从 `https://cdn.xmoa.smn.icu/downloads/mindreset-read-pico-s3/release.json` 查询发布版本；其它型号使用其型号目录中的 `release.json`。
 
 ## 写作规则
 
