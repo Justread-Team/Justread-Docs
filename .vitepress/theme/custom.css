@@ -1,1 +1,7 @@
-/* VitePress 默认主题样式 */
+/* The flasher owns its form spacing; avoid stacking three mobile gutters. */
+@media (max-width: 639px) {
+  .flash-layout .VPDoc {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+}

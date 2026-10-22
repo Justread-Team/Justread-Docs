@@ -1012,9 +1012,13 @@ async function startResourceImport() {
   animation: spin 1s linear infinite;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 639px) {
+  .flash-page {
+    padding-inline: 0;
+  }
+
   .flash-panel {
-    padding: 1.4rem;
+    padding: 1.4rem 0;
   }
 }
 

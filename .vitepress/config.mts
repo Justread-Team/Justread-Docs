@@ -8,7 +8,6 @@ const developerSidebar = {
     { text: '环境搭建', link: '/developer/setup' },
     { text: '构建、烧录与调试', link: '/developer/build-flash-debug' },
     { text: '代码结构', link: '/developer/codebase' },
-    { text: 'Lua 插件 API', link: '/developer/lua-plugin-api' },
     { text: '贡献与发布', link: '/developer/contributing-and-release' }
   ]
 }
@@ -24,7 +23,32 @@ const componentSidebar = {
   ]
 }
 
-const developerAndComponentsSidebar = [developerSidebar, componentSidebar]
+const extensionTutorialSidebar = {
+  text: '锁屏与插件：从零开始',
+  items: [
+    { text: '按阅读目标选文章', link: '/developer/extensions' },
+    { text: '插件和锁屏怎样运行', link: '/developer/extensions-runtime' },
+    { text: '制作第一个插件', link: '/developer/plugin-tutorial' },
+    { text: '制作第一个锁屏', link: '/developer/lockscreen-tutorial' }
+  ]
+}
+
+const extensionReferenceSidebar = {
+  text: '扩展接口与发布',
+  items: [
+    { text: '绘图、坐标和刷新详解', link: '/developer/lua-plugin-ui' },
+    { text: '设备、阅读和存档详解', link: '/developer/lua-plugin-services' },
+    { text: 'Lua 插件 API 完整参考', link: '/developer/lua-plugin-api' },
+    { text: '锁屏时间、诗句与通知', link: '/developer/lockscreen-data' },
+    { text: '锁屏配置完整参考', link: '/developer/lockscreen-development' },
+    { text: '打包、安装与验证', link: '/developer/extension-packaging' },
+    { text: '扩展发布文档模板', link: '/developer/extension-release-template' }
+  ]
+}
+
+const developerAndComponentsSidebar = [
+  developerSidebar, extensionTutorialSidebar, extensionReferenceSidebar, componentSidebar
+]
 
 export default defineConfig({
   lang: 'zh-CN',
@@ -69,6 +93,7 @@ export default defineConfig({
             { text: '使用说明总览', link: '/user/overview' },
             { text: '首次使用', link: '/user/getting-started' },
             { text: '阅读与文件管理', link: '/user/reading-and-files' },
+            { text: '安装插件和锁屏', link: '/user/extensions' },
             { text: '设置与更新', link: '/user/settings-and-updates' },
             { text: '故障排查', link: '/user/troubleshooting' }
           ]

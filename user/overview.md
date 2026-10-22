@@ -6,5 +6,6 @@
 
 - [首次使用](/user/getting-started)：连接设备、导入系统字体、准备书籍并开始阅读。
 - [阅读与文件管理](/user/reading-and-files)：TXT/EPUB、阅读工具、SD 卡目录和文件传输。
+- [安装插件和锁屏](/user/extensions)：无需编程，安装现成扩展、启用模板及按现象排错。
 - [设置与更新](/user/settings-and-updates)：字体、锁屏、Wi-Fi、Reader Cloud 和固件更新。
 - [故障排查](/user/troubleshooting)：按现象检查 SD 卡、字体、网络、刷写和阅读问题。
