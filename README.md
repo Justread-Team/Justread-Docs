@@ -23,7 +23,7 @@ pnpm docs:preview  # 预览静态构建结果
 
 ## 在线刷机资源
 
-刷机页从 `https://cdn.xmoa.smn.icu/downloads/models.json` 获取支持的设备型号，再按型号读取 `release.json` 和 `web-flash.json`。刷机按清单列出的分区文件执行，每个文件在写入前校验长度和 SHA-256，写入后逐个回读校验；刷机页不会擦除整片 Flash。首次启动系统字体的大小、SHA-256 和下载路径也来自该型号的 `release.json`，文件从 Cloud 的 `/downloads/shared/system.ttf` 获取。发布新资源时由 Cloud 发布流程更新这些 CDN 文件，不再将固件或字体复制到文档站。
+刷机页从 `https://cdn.xmoa.smn.icu/downloads/models.json` 获取设备型号和各 OTA 通道清单。它按用户选择读取 `ota/<channel>/release.json`，再加载该版本对应的 `web-flash/<channel>/<version>/manifest.json`；旧版清单缺少通道映射时，会按同一目录规则查找。只接受应用镜像大小和 SHA-256 与所选 OTA 版本一致的网页刷机包，通道没有匹配包时不会回退到其他通道。刷机按清单列出的分区文件执行，每个文件在写入前校验长度和 SHA-256，写入后逐个回读校验；刷机页不会擦除整片 Flash。系统字体资源使用发布清单中的版本化 OOBE 路径，并兼容旧的 `/downloads/shared/system.ttf` 路径。发布新资源时由 Cloud 发布流程更新这些 CDN 文件，不再将固件或字体复制到文档站。
 
 ## AI Agent 访问
 

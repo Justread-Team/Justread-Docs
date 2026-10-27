@@ -25,11 +25,16 @@ type DeviceModel = {
   resource_path: string
   ota_manifest: string
   web_flash_manifest?: string
+  ota_channels?: Partial<Record<FirmwareChannel, ChannelManifestRefs>>
   flash: DeviceFlashProfile
 }
+type FirmwareChannel = 'stable' | 'canary'
+type ChannelManifestRefs = { release_manifest: string; web_flash_manifest?: string | null }
 type FlashImage = { kind: string; path: string; address: number | string; bytes: number; sha256: string }
 type WebFlashManifest = {
   model_id: string
+  channel?: FirmwareChannel
+  version?: string
   chip: string
   flash_size: string
   flash_mode: string
@@ -40,6 +45,7 @@ type WebFlashManifest = {
 }
 type FirmwareManifest = {
   model_id: string
+  channel: FirmwareChannel
   version: string
   flash: WebFlashManifest | null
   resources: { systemFont: ResourceAsset }
@@ -67,6 +73,7 @@ const flashSteps = ['下载并校验分区镜像', '连接并识别设备', '写
 const selectedDevice = ref<SerialPortHandle | null>(null)
 const models = ref<DeviceModel[]>([])
 const selectedModelId = ref('')
+const selectedChannel = ref<FirmwareChannel>('stable')
 const errorMessage = ref('')
 const connecting = ref(false)
 const isBusy = ref(false)
@@ -109,6 +116,11 @@ function cloudDownloadUrl(path: string) {
   return url.toString()
 }
 
+function validModelDownloadPath(value: unknown, model: Pick<DeviceModel, 'resource_path'>) {
+  if (typeof value !== 'string' || !value.startsWith(model.resource_path) || value.includes('..')) return false
+  try { cloudDownloadUrl(value); return true } catch { return false }
+}
+
 function isDeviceModel(value: unknown): value is DeviceModel {
   if (!value || typeof value !== 'object') return false
   const model = value as Partial<DeviceModel>
@@ -117,7 +129,20 @@ function isDeviceModel(value: unknown): value is DeviceModel {
     && typeof model.display_name === 'string' && model.display_name.trim().length > 0
     && model.resource_path === `${DOWNLOADS_PATH}${model.id}/`
     && model.ota_manifest === `${model.resource_path}release.json`
-    && (model.web_flash_manifest === undefined || model.web_flash_manifest === `${model.resource_path}web-flash.json`)
+    && (model.web_flash_manifest === undefined || model.web_flash_manifest === `${model.resource_path}web-flash.json`
+      || (validModelDownloadPath(model.web_flash_manifest, model)
+        && /\/web-flash\/(stable|canary)\/[0-9]+\.[0-9]+\.[0-9]+\/manifest\.json$/.test(model.web_flash_manifest)))
+    && (model.ota_channels === undefined || (!!model.ota_channels && typeof model.ota_channels === 'object'
+      && !Array.isArray(model.ota_channels) && Object.entries(model.ota_channels).every(([channel, refs]) => {
+        if (channel !== 'stable' && channel !== 'canary') return false
+        if (!refs || typeof refs !== 'object') return false
+        const item = refs as Partial<ChannelManifestRefs>
+        const flashPrefix = `${model.resource_path}web-flash/${channel}/`
+        return item.release_manifest === `${model.resource_path}ota/${channel}/release.json`
+          && (item.web_flash_manifest === undefined || item.web_flash_manifest === null
+            || (validModelDownloadPath(item.web_flash_manifest, model) && item.web_flash_manifest.startsWith(flashPrefix)
+              && /[0-9]+\.[0-9]+\.[0-9]+\/manifest\.json$/.test(item.web_flash_manifest)))
+      })))
     && !!flash && typeof flash.chip === 'string' && typeof flash.flash_size === 'string'
     && typeof flash.flash_mode === 'string' && typeof flash.flash_freq === 'string'
     && flash.erase_all === false && !!flash.partitions && typeof flash.partitions === 'object'
@@ -224,55 +249,113 @@ async function loadManifest() {
     return
   }
   try {
-    const requests = [fetch(cloudDownloadUrl(model.ota_manifest), { cache: 'no-store' })]
-    if (model.web_flash_manifest) requests.push(fetch(cloudDownloadUrl(model.web_flash_manifest), { cache: 'no-store' }))
-    const responses = await Promise.all(requests)
-    if (!responses[0].ok) throw new Error(`Cloud 发布清单读取失败（HTTP ${responses[0].status}）。`)
-    const releaseValue: unknown = await responses[0].json()
+    const channel = selectedChannel.value
+    const channelRefs = model.ota_channels?.[channel]
+    const channelReleasePath = channelRefs?.release_manifest ?? `${model.resource_path}ota/${channel}/release.json`
+    let releaseResponse = await fetch(cloudDownloadUrl(channelReleasePath), { cache: 'no-store' })
+    let legacyRelease = false
+    if (!releaseResponse.ok && channel === 'stable' && !channelRefs) {
+      releaseResponse = await fetch(cloudDownloadUrl(model.ota_manifest), { cache: 'no-store' })
+      legacyRelease = releaseResponse.ok
+    }
+    if (!releaseResponse.ok) {
+      if (channel === 'canary') throw new Error('Cloud 暂无可用的 Canary 发布。')
+      throw new Error(`Cloud 稳定版发布清单读取失败（HTTP ${releaseResponse.status}）。`)
+    }
+    const releaseValue: unknown = await releaseResponse.json()
     if (!releaseValue || typeof releaseValue !== 'object') throw new Error('Cloud 发布清单格式无效。')
     const release = releaseValue as {
-      model_id?: unknown; version?: unknown; firmware?: unknown; system_font?: unknown
+      model_id?: unknown; channel?: unknown; version?: unknown; firmware?: unknown; system_font?: unknown
     }
-    if (release.model_id !== model.id || typeof release.version !== 'string' || !release.version
-        || !isAsset(release.firmware, `${model.resource_path}firmware.bin`)
-        || !isAsset(release.system_font, `${DOWNLOADS_PATH}shared/system.ttf`)) {
-      throw new Error('Cloud 发布清单与型号不匹配。')
+    if (release.model_id !== model.id || (release.channel !== undefined && release.channel !== channel)
+        || (release.channel === undefined && (!legacyRelease || channel !== 'stable'))
+        || typeof release.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(release.version)) {
+      throw new Error('Cloud 发布清单与型号或通道不匹配。')
+    }
+    const expectedFirmwarePath = legacyRelease
+      ? `${model.resource_path}firmware.bin`
+      : `${model.resource_path}ota/${channel}/${release.version}/firmware.bin`
+    if (!isAsset(release.firmware, expectedFirmwarePath)) throw new Error('Cloud 固件镜像路径或校验信息无效。')
+
+    let fontAsset = isResourceAsset(release.system_font) ? release.system_font : null
+    if (!fontAsset) {
+      if (legacyRelease) throw new Error('Cloud 系统字体资源信息无效。')
+      const legacyResponse = await fetch(cloudDownloadUrl(model.ota_manifest), { cache: 'no-store' })
+      if (!legacyResponse.ok) throw new Error('Cloud 系统字体资源清单读取失败。')
+      const legacyValue: unknown = await legacyResponse.json()
+      const legacy = legacyValue && typeof legacyValue === 'object'
+        ? legacyValue as { model_id?: unknown; system_font?: unknown }
+        : null
+      if (legacy?.model_id !== model.id || !isResourceAsset(legacy.system_font)) {
+        throw new Error('Cloud 系统字体资源信息无效。')
+      }
+      fontAsset = legacy.system_font
+    }
+
+    let webFlashPath: string | null
+    if (channelRefs) {
+      webFlashPath = channelRefs.web_flash_manifest ?? null
+    } else if (legacyRelease && channel === 'stable' && model.web_flash_manifest === `${model.resource_path}web-flash.json`) {
+      webFlashPath = model.web_flash_manifest
+    } else {
+      webFlashPath = `${model.resource_path}web-flash/${channel}/${release.version}/manifest.json`
     }
     let flash: WebFlashManifest | null = null
-    if (model.web_flash_manifest) {
-      if (!responses[1].ok) throw new Error(`Cloud 分区刷机清单读取失败（HTTP ${responses[1].status}）。`)
-      const flashValue: unknown = await responses[1].json()
-      if (!validWebFlashManifest(flashValue, model)) throw new Error('分区刷机清单与设备型号的地址布局不匹配。')
-      flash = flashValue
+    if (webFlashPath) {
+      if (!validModelDownloadPath(webFlashPath, model)) throw new Error('Cloud 分区刷机清单路径无效。')
+      const flashResponse = await fetch(cloudDownloadUrl(webFlashPath), { cache: 'no-store' })
+      if (flashResponse.ok) {
+        const flashValue: unknown = await flashResponse.json()
+        if (!validWebFlashManifest(flashValue, model)) throw new Error('分区刷机清单与设备型号的地址布局不匹配。')
+        const candidate = flashValue as WebFlashManifest
+        if ((candidate.channel !== undefined && candidate.channel !== channel)
+            || (candidate.version !== undefined && candidate.version !== release.version)) {
+          throw new Error('网页刷机清单与所选固件通道或版本不匹配。')
+        }
+        flash = candidate
+      } else if (flashResponse.status !== 404) {
+        throw new Error(`Cloud 分区刷机清单读取失败（HTTP ${flashResponse.status}）。`)
+      }
+    }
+    if (flash) {
       const application = flash.files.find((file) => file.kind === 'application')
       const firmware = release.firmware
-      if (!application || !isAsset(firmware, `${model.resource_path}firmware.bin`)
-          || application.path !== firmware.path || application.bytes !== firmware.bytes
+      if (!application || !isAsset(firmware, expectedFirmwarePath)
+          || application.bytes !== firmware.bytes
           || application.sha256.toLowerCase() !== firmware.sha256.toLowerCase()) {
         throw new Error('网页刷机应用镜像与 OTA 发布清单不一致。')
       }
     }
     if (request !== manifestRequest) return
-    const font = release.system_font
     manifest.value = {
       model_id: model.id,
+      channel,
       version: release.version,
       flash,
       resources: {
         systemFont: {
           label: 'JustRead 系统字体',
-          url: cloudDownloadUrl(font.path),
-          bytes: font.bytes,
-          sha256: font.sha256,
+          url: cloudDownloadUrl(fontAsset.path),
+          bytes: fontAsset.bytes,
+          sha256: fontAsset.sha256,
           blockBytes: RESOURCE_BLOCK_BYTES,
         },
       },
     }
-  } catch {
-    if (request === manifestRequest) manifestError.value = '刷机信息加载失败，请刷新网页重试。'
+  } catch (error) {
+    if (request === manifestRequest) {
+      manifestError.value = error instanceof Error ? error.message : '刷机信息加载失败，请稍后刷新重试。'
+    }
   } finally {
     if (request === manifestRequest) manifestLoading.value = false
   }
+}
+
+function isResourceAsset(value: unknown): value is { path: string; bytes: number; sha256: string } {
+  if (!isAsset(value)) return false
+  const asset = value as { path: string; bytes: number; sha256: string }
+  return asset.path === `${DOWNLOADS_PATH}shared/system.ttf`
+    || /^\/downloads\/oobe\/[0-9]+\.[0-9]+\.[0-9]+\/system\.ttf$/.test(asset.path)
 }
 
 function changeModel(event: Event) {
@@ -280,6 +363,17 @@ function changeModel(event: Event) {
   const nextModelId = (event.target as HTMLSelectElement).value
   if (!models.value.some((model) => model.id === nextModelId) || nextModelId === selectedModelId.value) return
   selectedModelId.value = nextModelId
+  selectedDevice.value = null
+  flashState.value = 'start'
+  errorMessage.value = ''
+  void loadManifest()
+}
+
+function changeChannel(event: Event) {
+  if (isBusy.value || connecting.value) return
+  const next = (event.target as HTMLSelectElement).value
+  if ((next !== 'stable' && next !== 'canary') || next === selectedChannel.value) return
+  selectedChannel.value = next
   selectedDevice.value = null
   flashState.value = 'start'
   errorMessage.value = ''
@@ -764,6 +858,11 @@ async function startResourceImport() {
             {{ device.display_name }}
           </option>
         </select>
+        <label class="field-label" for="firmware-channel">固件通道</label>
+        <select id="firmware-channel" :value="selectedChannel" :disabled="isBusy || connecting || manifestLoading" @change="changeChannel">
+          <option value="stable">正式版 Stable</option>
+          <option value="canary">测试版 Canary</option>
+        </select>
         <div v-if="selectedModel" class="device-meta" aria-label="设备固件信息">
           <div class="device-meta-row">
             <span class="device-meta-label">设备型号</span>
@@ -773,12 +872,16 @@ async function startResourceImport() {
             </span>
           </div>
           <div class="device-meta-row">
+            <span class="device-meta-label">固件通道</span>
+            <span class="device-meta-value">{{ selectedChannel === 'stable' ? '正式版 Stable' : '测试版 Canary' }}</span>
+          </div>
+          <div class="device-meta-row">
             <span class="device-meta-label">JustRead 版本</span>
             <code class="device-meta-value">{{ manifest?.version ?? (manifestLoading ? '读取中…' : '—') }}</code>
           </div>
         </div>
-        <p v-if="selectedModel && !selectedModel.web_flash_manifest" class="connection-error" role="status">
-          此型号尚未发布网页刷机分区清单。
+        <p v-if="selectedModel && !manifestLoading && manifest && !manifest.flash" class="connection-error" role="status">
+          此通道的 {{ manifest.version }} 版本暂无匹配的网页刷机包。请选择其他已发布的通道或稍后重试。
         </p>
         <VPButton
           :text="isBusy ? '等待确认…' : connecting ? '正在连接…' : selectedDevice ? '开始刷机' : '连接设备'"
